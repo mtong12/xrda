@@ -8,17 +8,28 @@ from PIL import Image
 
 #These are user parameters that you change based off of what material you will be analyzing
 USER_PARAMS = {
-    "PEAKS TO ANALYZE" : ["pos0", "pos1", "pos2"], #What peaks to analyze example: ["pos0", "pos1", "pos2", "pos5"] corresponds with peak 1, peak 2, peak 3 and peak 6.
     "EXPERIMENT TIME" : 100, #The total amount of time the experiment takes place over (used to calculate time resolution) if exporting pressure vs time plot
     "XRAY WAVELENGTH" : 0.4066, #Wavelength of XRAY in Angstroms
-    "A" : 4.03892966, #Lattice parameters of the crystal in Angstroms
-    "B" : 4.03892966,
-    "C" : 4.03892966,
-    "BULK MODULUS" : 76.0, #Bulk modulus of the material in GPa
     "SYMMETRY" : "CUBIC", #What crystal system the material is (used to calculate lattice parameter)
     "HEATMAP DIM" : -1, #Size of X axis for heatmap. The Y dimension is automatically calculated by dividing total size of data set by X. Set this to -1 if the image is square.
     "INVALIDATE HEATMAP NEGATIVES": True, #Toggles if negative values in the heatmap are to be erased (replaces the pixel with a white square).
-    "XDI MASK" : True #Toggles the image mask, "mask.png" for XDI outputs
+    "XDI MASK" : False #Toggles the image mask, "mask.png" for XDI outputs
+}
+
+#Defines what materials are in the system. Formatted as [[(Peak locations)], [A, B, C, Bulk Modulus]]
+MATERIALS = {
+
+#    "Cu" : [["pos0","pos2"],[3.6173, 3.6173, 3.6173, 139.0]], 
+#    "Ni" : [["pos1","pos3"],[3.5220, 3.5220, 3.5220, 162]],
+
+#    "Ni" : [["pos0","pos1","pos2"],[3.5220, 3.5220, 3.5220, 162]],
+
+#    "Fe" : [["pos0","pos1","pos2"],[2.8696, 2.8696, 2.8696, 170]],
+#    "Mn" : [["pos0","pos1","pos2"],[8.6185, 8.6185, 8.6185, 120]],
+
+#    "Fe" : [["pos0","pos1","pos2"],[2.8696, 2.8696, 2.8696, 170]]
+
+    "Cu" : [["pos0","pos1", "pos2"],[3.6173, 3.6173, 3.6173, 139.0]], 
 }
 
 #These are toggles for what to output. Change the values to True/False. Note: XDI and Dynamic outputs are selected by what folder the input csv files are located in.
@@ -45,7 +56,7 @@ OUTPUTS = {
 #The N of 'posN' is used to access the index of the array and correlate a peak with its corresponding direction.
 SYMMETRY = {
     "CUBIC" : [[1,1,1],[2,0,0],[2,2,0],[3,1,1],[2,2,2],[4,0,0],[3,3,1],[4,2,0],[5,1,1],[4,4,0],[5,3,1],[6,0,0],[6,2,0],[5,3,3],[6,2,2],[4,4,4],[7,1,1],[6,4,0],[6,4,2],[7,3,1]],
-    "CUSTOM" : [] #Define a custom symmetry. Ex: [[1, 1, 1], [2, 0, 0]]. This associates [111] with peak 1 (pos0) and [200] with peak 2 (pos1).
+    "CUSTOM" : [[1,1,0],[2,0,0],[2,1,1],[2,2,0]] #Define a custom symmetry. Ex: [[1, 1, 1], [2, 0, 0]]. This associates [111] with peak 1 (pos0) and [200] with peak 2 (pos1).
 }
 
 #This calculates the pressure and FWHM 
@@ -76,6 +87,13 @@ def calculate_values(df, peak, peak_name, wavelength, a, b, c, bulk_mod, hkl):
 
     return df2
 
+#This finds the key from a dictionary given a unique value
+def findkey(search_value, dictionary):
+    for key, value in dictionary.items():
+        for sublist in value:
+            if search_value in sublist:
+                return key
+            
 #This makes a new path if one doesn't exist
 def newpath(filepath):
     if not os.path.exists(filepath):
@@ -89,7 +107,7 @@ def conv_xy(xdim,array):
         output.append([])
         for j in range (0, xdim):
 
-            #This invalidates negative values. Can be toggled by setting 'INVALIDATE HEATMAP NEGATIVES' in user paramssss.
+            #This invalidates negative values. Can be toggled by setting 'INVALIDATE HEATMAP NEGATIVES' in user params.
             value = array[i * xdim + j]
             if value < 0 and USER_PARAMS['INVALIDATE HEATMAP NEGATIVES']:
                 value = np.nan
@@ -166,8 +184,14 @@ def dynamic_waterfall(x, y, z, var_name, output_path, filename):
 if __name__ == "__main__":
     
     #Checks and sees if dynamic and XDI input folders are present
-    newpath(os.getcwd() + "/inputs/dynamic")
-    newpath(os.getcwd() + "/inputs/XDI")
+    newpath("inputs/dynamic")
+    newpath("inputs/XDI")
+
+    #Determines what peaks to analyze
+    peaklist = []
+    for material in MATERIALS.keys():
+        for peak in MATERIALS[material][0]:
+            peaklist.append(peak)
 
     #Loads the XDI mask if toggled on
     if USER_PARAMS["XDI MASK"]:
@@ -205,22 +229,26 @@ if __name__ == "__main__":
             thetas = np.array([])
             pressures = np.array([])
 
-            #Calculate the pressure for each peak
-            for peak in USER_PARAMS['PEAKS TO ANALYZE']:
+            #Read the csv file
+            crystaldf = pd.read_csv(file)
 
+            #Calculate the pressure for each peak
+            for peak in peaklist:
+
+                #Get the material name, hkl values and set the peak name for graphs
+                material = findkey(peak, MATERIALS)
                 hkl = SYMMETRY[USER_PARAMS["SYMMETRY"]][int(peak[3:])]
-                peak_name = "[{0}{1}{2}]".format(hkl[0],hkl[1],hkl[2])
-                crystaldf = pd.read_csv(file)
+                peak_name = "{3} [{0}{1}{2}]".format(hkl[0],hkl[1],hkl[2], material)
 
                 #Run the calculations with user params
                 df2 = calculate_values(crystaldf, 
                 peak, 
                 peak_name,
                 USER_PARAMS['XRAY WAVELENGTH'],
-                USER_PARAMS['A'],
-                USER_PARAMS['B'],
-                USER_PARAMS['C'],
-                USER_PARAMS['BULK MODULUS'],
+                MATERIALS[material][1][0],
+                MATERIALS[material][1][1],
+                MATERIALS[material][1][2],
+                MATERIALS[material][1][3],
                 hkl)
 
                 #Add values to the waterfall data
@@ -300,7 +328,7 @@ if __name__ == "__main__":
 
                 if OUTPUTS['TIME VS. 2-THETA VS. INTENSITY PLOT']:
                     time = np.arange(0,USER_PARAMS['EXPERIMENT TIME'],USER_PARAMS['EXPERIMENT TIME']/crystaldf["int0"].size)
-                    time = np.tile(time, len(USER_PARAMS["PEAKS TO ANALYZE"]))
+                    time = np.tile(time, len(peaklist))
 
                     dynamic_waterfall(thetas,
                     time,
