@@ -4,21 +4,21 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import glob as glb
 import os
-import h5py
 from PIL import Image
 
 #These are user parameters that you change based off of what material you will be analyzings
 USER_PARAMS = {
     "EXPERIMENT TIME" : 100, #The total amount of time the experiment takes place over (used to calculate time resolution) if exporting pressure vs time plot
     "XRAY WAVELENGTH" : 0.4133, #Wavelength of XRAY in Angstroms
-    "SYMMETRY" : "CUSTOM", #What crystal system the material is (used to calculate lattice parameter)
+    "SYMMETRY" : "FM-3M", #What crystal system the material is (used to calculate lattice parameter)
     "HEATMAP DIM" : -1, #Size of X axis for heatmap. The Y dimension is automatically calculated by dividing total size of data set by X. Set this to -1 if the image is square.
     "INVALIDATE HEATMAP NEGATIVES": False, #Toggles if negative values in the heatmap are to be erased (replaces the pixel with a white square).
-    "XDI MASK" : True, #Toggles the image mask, "mask.png" for XDI outputs
+    "XDI MASK" : True, #Toggles the image mask, "mask.png" for XDI outputs 
     "FWHM THRESHOLD" : [0, 5], #Threshold at which to invalidate FWHM values, set any to -1 to disable.
     "INTENSITY THRESHOLD" : [0, 200], #Threshold at which to invalidate intensity values, set any to -1 to disable.
-    "PRESSURE THRESHOLD" : [0, 5], #Threshold at which to invalidate pressure values, set any to -1 to disable.
-    "LINE MASK": [5,40], #Region to plot in a Line plot (Excludes gaskets)
+    "PRESSURE THRESHOLD" : [0, 8], #Threshold at which to invalidate pressure values, set any to -1 to disable.
+    "LINE MASK": [0, 0], #Region to plot in a Line plot (Excludes gaskets), set both of the values to the same number to disable.
+    "LINE AUTO MASK": True, #Enables automasking for line scans
     "LINE STEP SIZE" : [0.6] #Step size per data sequence for line graphs (um)
 }
 
@@ -32,9 +32,9 @@ SYMMETRY = {
 
 #Defines what materials are in the system. Formatted as [[(Peak locations)], [A, B, C, Bulk Modulus]]
 MATERIALS = {
-#    "Al" : [["pos1","pos0"], [4.0389, 4.0389, 4.0389, 76.0]] #Powder
+    "Al" : [["pos0","pos1"], [4.0389, 4.0389, 4.0389, 76.0]] #Powder
 
-#    "Al" : [["pos1","pos0"], [4.0509, 4.0509, 4.0509, 76.0]] #Sheet
+#    "Al" : [["pos0","pos1"], [4.0509, 4.0509, 4.0509, 76.0]] #Sheet
 
 #    "Cu" : [["pos0","pos2"],[3.6173, 3.6173, 3.6173, 139.0]], 
 #    "Ni" : [["pos1","pos3"],[3.5220, 3.5220, 3.5220, 162]],
@@ -48,8 +48,9 @@ MATERIALS = {
 
 #    "Cu" : [["pos0","pos1"],[3.6173, 3.6173, 3.6173, 139.0]], 
 
-    "Bi" : [["pos0","pos1"],[4.5470, 4.5470, 11.8571, 36.0]],
-    "Cu" : [["pos2"],[3.6150, 3.6150, 3.6150, 140.0]],
+#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0]],
+#    "Bi (II)" : [["pos1"],[6.6726, 6.1108, 3.3001, 36.0]],
+#    "Cu" : [["pos2"],[3.6150, 3.6150, 3.6150, 140.0]],
 }
 
 #These are toggles for what to output. Change the values to True/False. Note: XDI and Dynamic outputs are selected by what folder the input csv files are located in.
@@ -123,7 +124,7 @@ def findkey(search_value, dictionary):
         for sublist in value:
             if search_value in sublist:
                 return key
-            
+
 #This makes a new path if one doesn't exist
 def newpath(filepath):
     if not os.path.exists(filepath):
@@ -216,8 +217,49 @@ def line_plot(data, variable, output_path, peak_name, filename, autoscale):
     fig = plt.figure(figsize=(10,6))
     plt.title(peak_name+" {0} vs Position (um)".format(variable))
 
-    #Set the line mask to mask out gasket
-    data = data.iloc[min(USER_PARAMS["LINE MASK"]):max(USER_PARAMS["LINE MASK"])+1]
+    if (USER_PARAMS["LINE AUTO MASK"]):
+        #Converts the dataframe into a numpy array
+        data = np.array(data)
+        
+        #Filter out the edges by masking out too high changes
+        change = abs(np.gradient(data))
+        data_mean = np.mean(change)
+        data_std = np.std(change)
+        for index, value in enumerate(change):
+            if(value > data_mean + data_std or value < data_mean - data_std):
+                data[index] = np.nan
+
+        #Filter out values too different from the mean
+        data_mean = np.mean(data)
+        data_std = np.std(data)
+        for index, value in enumerate(data):
+            if(value > data_mean + data_std*3 or value < data_mean - data_std*3):
+                data[index] = np.nan
+
+        #Filter out smaller non-continous plots
+        max_series = np.full((1,len(data)), np.nan)[0]
+        current_series = max_series
+
+        #Strips all np.nan values and returns the length of what's left
+        def len_strip_nan(data):
+            return len(data[~np.isnan(data)])
+        
+        for index, value in enumerate(data):
+            if np.isnan(value):
+                if len_strip_nan(current_series) > len_strip_nan(max_series):
+                    max_series = current_series
+                current_series = np.full((1,len(data)), np.nan)[0]
+            else:
+                current_series[index] = value
+        
+        if len_strip_nan(current_series) > len_strip_nan(max_series):
+            max_series = current_series
+            
+        data = max_series
+
+    #Mask data if a mask is specified
+    if(not (min(USER_PARAMS["LINE MASK"]) == max(USER_PARAMS["LINE MASK"]))):
+        plt.xlim(min(USER_PARAMS["LINE MASK"]), max(USER_PARAMS["LINE MASK"]))
     
     #This sets the lower and upper bounds of the graph.
     if autoscale:
@@ -225,13 +267,12 @@ def line_plot(data, variable, output_path, peak_name, filename, autoscale):
         plt_min = 0 if data.min() > 0 else data.min()*1.1
         plt.ylim(plt_min, plt_max)
 
+    #Calculates the list of positions
+    positions = np.arange(-len(data)//2, len(data)//2, 1)
+
     plt.xlabel("Position (um)")
     plt.ylabel(variable)
-
-    #For the X axis, it generates a list of numbers from 0 to "EXPERIMENT TIME" spaced out by the time resolution
-    #The time resolution is calculated by dividing "EXPERIMENT TIME" by how many data points there are
-    positions = ()
-    plt.plot(np.arange(-data.size//2, data.size//2,1)*USER_PARAMS["LINE STEP SIZE"], data)
+    plt.plot(positions*USER_PARAMS["LINE STEP SIZE"], data)
 
     #Save the plot to outputs
     newpath(output_path)
@@ -441,7 +482,7 @@ if __name__ == "__main__":
                         ,"{0}\\plots\\{1}\\i_vs_t\\".format(savepath,filename),
                         peak_name,
                         filename,
-                        True)
+                        False)
 
                     if OUTPUTS["LINE PRESSURE VS. TIME PLOT"]:
                         line_plot(df2[peak_name+'_P_GPa'],
@@ -449,7 +490,7 @@ if __name__ == "__main__":
                         ,"{0}\\plots\\{1}\\p_vs_t\\".format(savepath,filename),
                         peak_name,
                         filename,
-                        True)
+                        False)
 
                     if OUTPUTS["LINE FWHM VS. TIME PLOT"]:
                         line_plot(df2[peak_name+'_FWHM'],
@@ -457,7 +498,7 @@ if __name__ == "__main__":
                         ,"{0}\\plots\\{1}\\fwhm_vs_t\\".format(savepath,filename),
                         peak_name,
                         filename,
-                        True)
+                        False)
 
                     if OUTPUTS["LINE LATTICE PARAMETER VS. TIME PLOT"]:
                         line_plot(df2[peak_name+'_a_Angstrom'],
@@ -473,7 +514,7 @@ if __name__ == "__main__":
                         ,"{0}\\plots\\{1}\\strain_vs_t\\".format(savepath,filename),
                         peak_name,
                         filename,
-                        True)
+                        False)
 
             if OUTPUTS["DYNAMIC"]:
                 if OUTPUTS['PRESSURE VS. 2-THETA VS. INTENSITY PLOT']:
