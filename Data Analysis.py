@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import glob as glb
 import os
+import pathlib
 from PIL import Image
 
 #These are user parameters that you change based off of what material you will be analyzings
@@ -14,43 +15,48 @@ USER_PARAMS = {
     "HEATMAP DIM" : -1, #Size of X axis for heatmap. The Y dimension is automatically calculated by dividing total size of data set by X. Set this to -1 if the image is square.
     "INVALIDATE HEATMAP NEGATIVES": False, #Toggles if negative values in the heatmap are to be erased (replaces the pixel with a white square).
     "XDI MASK" : True, #Toggles the image mask, "mask.png" for XDI outputs 
-    "FWHM THRESHOLD" : [0, 5], #Threshold at which to invalidate FWHM values, set any to -1 to disable.
-    "INTENSITY THRESHOLD" : [0, 200], #Threshold at which to invalidate intensity values, set any to -1 to disable.
-    "PRESSURE THRESHOLD" : [0, 8], #Threshold at which to invalidate pressure values, set any to -1 to disable.
+    "XDI STEP SIZE" : 6, #Step size per data sequence for XDI plots (um)
+    "FWHM THRESHOLD" : [0, 10], #Threshold at which to invalidate FWHM values, set any to -1 to disable.
+    "INTENSITY THRESHOLD" : [0, -1], #Threshold at which to invalidate intensity values, set any to -1 to disable.
+    "PRESSURE THRESHOLD" : [0, 10], #Threshold at which to invalidate pressure values, set any to -1 to disable.
     "LINE MASK": [0, 0], #Region to plot in a Line plot (Excludes gaskets), set both of the values to the same number to disable.
     "LINE AUTO MASK": True, #Enables automasking for line scans
-    "LINE STEP SIZE" : [0.6] #Step size per data sequence for line graphs (um)
+    "LINE STEP SIZE" : [0.6], #Step size per data sequence for line graphs (um)
+    "REFERENCE LATTICE" : 4.02057597273812, #Input the reference lattice parameter at no pressure to use for pressure calculations. Set to -1 to use the first diffraction pattern as reference.
 }
 
-#This defines the peak appearance
-#In "PEAKS TO ANALYZE", the number after the first 3 characters of each peak will determine which direction to associate with. Ex: pos4 will associated with [2,2,2]. pos0 will associate with [1,1,1].
-#The N of 'posN' is used to access the index of the array and correlate a peak with its corresponding direction.
-SYMMETRY = {
-    "FM-3M" : [[1,1,1],[2,0,0],[2,2,0],[3,1,1],[2,2,2],[4,0,0],[3,3,1],[4,2,0],[5,1,1],[4,4,0],[5,3,1],[6,0,0],[6,2,0],[5,3,3],[6,2,2],[4,4,4],[7,1,1],[6,4,0],[6,4,2],[7,3,1]],
-    "CUSTOM" : [[1,0,2],[1,1,-1],[1,1,1]] #Define a custom symmetry. Ex: [[1, 1, 1], [2, 0, 0]]. This associates [111] with peak 1 (pos0) and [200] with peak 2 (pos1).
-}
 
-#Defines what materials are in the system. Formatted as [[(Peak locations)], [A, B, C, Bulk Modulus]]
+#Defines what materials are in the system. Formatted as [[(Peak locations)], [A, B, C, Bulk Modulus], [(Crystallpgraphic Directions)]]. Make sure Peak location and crystallographic directions are in the same order.
+#FM-3M REFLECTIONS : [1,1,1] [2,0,0] [2,2,0] [3,1,1] [2,2,2] [4,0,0] [3,3,1] [4,2,0] [5,1,1] [4,4,0] [5,3,1] [6,0,0] [6,2,0] [5,3,3] [6,2,2] [4,4,4] [7,1,1] [6,4,0] [6,4,2] [7,3,1]
 MATERIALS = {
-    "Al" : [["pos0","pos1"], [4.0389, 4.0389, 4.0389, 76.0]] #Powder
+#    "Al" : [["pos0","pos1"], [4.0389, 4.0389, 4.0389, 76.0], [[1,1,1],[2,0,0]]] #Powder
 
-#    "Al" : [["pos0","pos1"], [4.0509, 4.0509, 4.0509, 76.0]] #Sheet
+    "Al" : [["pos0","pos1","pos2","pos3"], [4.0509, 4.0509, 4.0509, 76.0], [[1,1,1],[2,0,0],[2,2,0],[3,1,1]]] #Sheet
 
-#    "Cu" : [["pos0","pos2"],[3.6173, 3.6173, 3.6173, 139.0]], 
-#    "Ni" : [["pos1","pos3"],[3.5220, 3.5220, 3.5220, 162]],
+#    "Cu" : [["pos0","pos2"],[3.6173, 3.6173, 3.6173, 139.0], [[1,1,1],[2,2,0]]], 
+#    "Ni" : [["pos1","pos3"],[3.5220, 3.5220, 3.5220, 162], [[2,0,0],[3,1,1]]],
 
-#    "Ni" : [["pos0","pos1"],[3.5240, 3.5240, 3.5240, 162]],
+#    "Ni" : [["pos0","pos1"],[3.5240, 3.5240, 3.5240, 162], [[1,1,1],[2,0,0]]],
 
-#    "Fe" : [["pos0","pos1","pos2"],[2.8696, 2.8696, 2.8696, 170]],
-#    "Mn" : [["pos0","pos1","pos2"],[8.6185, 8.6185, 8.6185, 120]],
+#    "Fe" : [["pos0","pos1","pos2"],[2.8696, 2.8696, 2.8696, 170], [[1,1,1],[2,0,0],[2,2,0]]]
 
-#    "Fe" : [["pos0","pos1","pos2"],[2.8696, 2.8696, 2.8696, 170]]
+#    "Cu" : [["pos0","pos1"],[3.6173, 3.6173, 3.6173, 139.0], [[1,1,1],[2,0,0]]], 
 
-#    "Cu" : [["pos0","pos1"],[3.6173, 3.6173, 3.6173, 139.0]], 
+#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0], [[1,0,2]]],
+#    "Bi (II)" : [["pos1"],[6.6726, 6.1108, 3.3001, 36.0], [[1,1,-1]]],
+#    "Cu" : [["pos2"],[3.6150, 3.6150, 3.6150, 140.0], [[1,1,1]]],
 
-#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0]],
-#    "Bi (II)" : [["pos1"],[6.6726, 6.1108, 3.3001, 36.0]],
-#    "Cu" : [["pos2"],[3.6150, 3.6150, 3.6150, 140.0]],
+#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0], [[1,0,2]]],
+#    "Bi (II)" : [["pos1","pos2"],[6.6726, 6.1108, 3.3001, 36.0], [[1,1,-1],[2,0,-1]]],
+#    "Cu" : [["pos3"],[3.6150, 3.6150, 3.6150, 140.0], [[2,0,0]]],
+
+#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0], [[1,0,2]]],
+#    "Bi (II)" : [["pos1"],[6.6726, 6.1108, 3.3001, 36.0], [[1,1,-1]]],
+#    "Cu" : [["pos2"],[3.6150, 3.6150, 3.6150, 140.0], [[1,1,1]]],
+
+#    "Bi (II)" : [["pos1","pos2"],[3.8, 3.8, 3.8, 36.0], [[1,1,-1],[2,0,1]]],
+#    "Bi (I)" : [["pos0"],[4.5470, 4.5470, 11.8571, 36.0], [[1,0,2]]],
+#    "Cu" : [["pos3"],[3.6150, 3.6150, 3.6150, 140.0], [[1,1,1],[2,0,0]]],
 }
 
 #These are toggles for what to output. Change the values to True/False. Note: XDI and Dynamic outputs are selected by what folder the input csv files are located in.
@@ -97,8 +103,13 @@ def calculate_values(df, peak, peak_name, wavelength, a, b, c, bulk_mod, hkl):
                df2[peak_name+'_d_Angstrom']*np.sqrt(hkl[0]**2 + hkl[1]**2 + hkl[2]**2))
 
     #Calculate and insert the pressure using bulk modulus into the dataframe
+    reference_lattice = (df2[peak_name+'_a_Angstrom'][0]**3)
+    
+    if(USER_PARAMS["REFERENCE LATTICE"] != -1):
+        reference_lattice = USER_PARAMS["REFERENCE LATTICE"]**3
+
     df2.insert(2, peak_name+'_P_GPa', 
-               (((a*b*c)-(df2[peak_name+'_a_Angstrom']**3))/(df2[peak_name+'_a_Angstrom'][0]**3))*bulk_mod)
+               (((a*b*c)-(df2[peak_name+'_a_Angstrom']**3))/(reference_lattice))*bulk_mod)
     
     #Check is pydidas or GSAS values for FWHM is provided
     if 'sig0' in df.columns:
@@ -114,7 +125,7 @@ def calculate_values(df, peak, peak_name, wavelength, a, b, c, bulk_mod, hkl):
 
     #Calculates and inserts lattice strain
     df2.insert(4, peak_name+'_Lattice_Strain', 
-               (df2[peak_name+'_a_Angstrom'] - df2[peak_name+'_a_Angstrom'][0]) / df2[peak_name+'_a_Angstrom'][0])
+               (df2[peak_name+'_a_Angstrom'] - reference_lattice) / reference_lattice)
 
     return df2
 
@@ -127,8 +138,8 @@ def findkey(search_value, dictionary):
 
 #This makes a new path if one doesn't exist
 def newpath(filepath):
-    if not os.path.exists(filepath):
-        os.makedirs(filepath)
+    path = pathlib.Path(filepath)
+    path.mkdir(parents=True, exist_ok=True)
 
 #Converts an 1D array into an array with shape (x,size(array)/x). This allows us to select an X and Y position and find its corresponding value. output[X][Y]
 def conv_xy(xdim,array,output_path):
@@ -171,9 +182,13 @@ def heatmap(data, map_name, output_path, peak_name, filename, dimension):
     Z = conv_xy(xdim, data, output_path)
 
     #We have to transpose the X and Y for pcolormesh. shape[0] = x size, shape[1] = y size
-    X = np.arange(np.array(Z).shape[1])
-    Y = np.arange(np.array(Z).shape[0])
-    plt.title(map_name)
+    X = np.arange(np.array(Z).shape[1])*USER_PARAMS["XDI STEP SIZE"]
+    Y = np.arange(np.array(Z).shape[0])*USER_PARAMS["XDI STEP SIZE"]
+
+    plt.xlabel("Position (µm)")
+    plt.ylabel("Position (µm)")
+
+    plt.title(peak_name + " " + map_name+" Map")
     c = plt.pcolormesh(X,Y,Z)
     plt.colorbar(c)
     newpath(output_path)
@@ -184,8 +199,10 @@ def heatmap(data, map_name, output_path, peak_name, filename, dimension):
         fig = plt.figure(figsize=(8,7))
         g = np.array(Z)
         ydim = np.array(Z).shape[1]
-        plt.title(map_name+" X slice about Y = {0}".format(ydim//2))
-        plt.plot(g[ydim//2,:])
+        plt.title(peak_name + " " + map_name+" X slice about Y = {0}".format(ydim//2))
+        plt.xlabel("Position (µm)")
+        plt.ylabel(map_name)
+        plt.plot(X, g[ydim//2,:])
         fig.savefig(output_path+peak_name+"_SLICE_"+filename)
         plt.close()
 
@@ -221,7 +238,7 @@ def line_plot(data, variable, output_path, peak_name, filename, autoscale):
         #Converts the dataframe into a numpy array
         data = np.array(data)
         
-        #Filter out the edges by masking out too high changes
+        #Filter out the edges by masking out large changes
         change = abs(np.gradient(data))
         data_mean = np.mean(change)
         data_std = np.std(change)
@@ -236,14 +253,15 @@ def line_plot(data, variable, output_path, peak_name, filename, autoscale):
             if(value > data_mean + data_std*3 or value < data_mean - data_std*3):
                 data[index] = np.nan
 
-        #Filter out smaller non-continous plots
-        max_series = np.full((1,len(data)), np.nan)[0]
-        current_series = max_series
-
-        #Strips all np.nan values and returns the length of what's left
+        #Strips all np.nan values from an array and returns the length of what's left
         def len_strip_nan(data):
             return len(data[~np.isnan(data)])
         
+        #Under the assumption that the remaining data is fractured and non-continious, 
+        #This section finds the longest continous line and discards all else.
+        max_series = np.full((1,len(data)), np.nan)[0]
+        current_series = max_series
+
         for index, value in enumerate(data):
             if np.isnan(value):
                 if len_strip_nan(current_series) > len_strip_nan(max_series):
@@ -256,7 +274,7 @@ def line_plot(data, variable, output_path, peak_name, filename, autoscale):
             max_series = current_series
             
         data = max_series
-
+        
     #Mask data if a mask is specified
     if(not (min(USER_PARAMS["LINE MASK"]) == max(USER_PARAMS["LINE MASK"]))):
         plt.xlim(min(USER_PARAMS["LINE MASK"]), max(USER_PARAMS["LINE MASK"]))
@@ -286,7 +304,7 @@ def dynamic_waterfall(x, y, z, var_name, output_path, filename):
     cbar.ax.set_ylabel("Intensity")
     plt.xlabel("2 Theta")
     plt.ylabel(var_name)
-    plt.title("{0} vs 2-Theta vs Insensity".format(var_name))
+    plt.title("{0} vs 2-Theta vs Intensity".format(var_name))
 
     #Save the plot to outputs
     newpath(output_path)
@@ -362,7 +380,9 @@ if __name__ == "__main__":
 
                 #Get the material name, hkl values and set the peak name for graphs
                 material = findkey(peak, MATERIALS)
-                hkl = SYMMETRY[USER_PARAMS["SYMMETRY"]][int(peak[3:])]
+
+                hkl = MATERIALS[material][2][MATERIALS[material][0].index(peak)]
+
                 peak_name = "{3} [{0}{1}{2}]".format(hkl[0],hkl[1],hkl[2], material)
 
                 #Run the calculations with user params
@@ -387,7 +407,7 @@ if __name__ == "__main__":
                 if OUTPUTS["XDI"]:
                     if OUTPUTS["2D PRESSURE MAP"]:
                         heatmap(df2[peak_name+'_P_GPa'], 
-                        "{0} Pressure (GPa) Map".format(peak_name), 
+                        "Pressure (GPa)", 
                         "{0}\\plots\\{1}\\heatmaps\\pressure\\".format(savepath,filename), 
                         peak_name, 
                         filename, 
@@ -395,7 +415,7 @@ if __name__ == "__main__":
 
                     if OUTPUTS["2D INTENSITY MAP"]:
                         heatmap(crystaldf["int"+peak[3:]], 
-                        "{0} Intensity Map".format(peak_name), 
+                        "Intensity", 
                         "{0}\\plots\\{1}\\heatmaps\\intensity\\".format(savepath,filename), 
                         peak_name, 
                         filename, 
@@ -403,7 +423,7 @@ if __name__ == "__main__":
 
                     if OUTPUTS["2D FWHM MAP"]:
                         heatmap(df2[peak_name+'_FWHM'], 
-                        "{0} FWHM (Radian) Map".format(peak_name), 
+                        "FWHM (Radian)", 
                         "{0}\\plots\\{1}\\heatmaps\\fwhm\\".format(savepath,filename), 
                         peak_name, 
                         filename, 
@@ -449,31 +469,6 @@ if __name__ == "__main__":
                         peak_name,
                         filename,
                         True)
-
-                if OUTPUTS["XDI"]:
-                    if OUTPUTS["2D PRESSURE MAP"]:
-                        heatmap(df2[peak_name+'_P_GPa'], 
-                        "{0} Pressure (GPa) Map".format(peak_name), 
-                        "{0}\\plots\\{1}\\heatmaps\\pressure\\".format(savepath,filename), 
-                        peak_name, 
-                        filename, 
-                        USER_PARAMS["HEATMAP DIM"])
-
-                    if OUTPUTS["2D INTENSITY MAP"]:
-                        heatmap(crystaldf["int"+peak[3:]], 
-                        "{0} Intensity Map".format(peak_name), 
-                        "{0}\\plots\\{1}\\heatmaps\\intensity\\".format(savepath,filename), 
-                        peak_name, 
-                        filename, 
-                        USER_PARAMS["HEATMAP DIM"])
-
-                    if OUTPUTS["2D FWHM MAP"]:
-                        heatmap(df2[peak_name+'_FWHM'], 
-                        "{0} FWHM (Radian) Map".format(peak_name), 
-                        "{0}\\plots\\{1}\\heatmaps\\fwhm\\".format(savepath,filename), 
-                        peak_name, 
-                        filename, 
-                        USER_PARAMS["HEATMAP DIM"])
 
                 if OUTPUTS["LINE"]:
                     if OUTPUTS["LINE INTENSITY VS. TIME PLOT"]:

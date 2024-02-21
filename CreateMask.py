@@ -21,12 +21,12 @@ if __name__ == "__main__":
     df = pd.read_csv(glb.glob("./inputs/XDI/*.csv")[0])
 
     #Choose which peak to create mask with
-    peak = 'int0'
+    peak = 'sig1'
     df2 = df[peak]
 
     #Mask Cu Pressure Values
-    if True:
-        system = [["pos2"],[3.6150, 3.6150, 3.6150, 140.0], [1,1,1]]
+    if False:
+        system = [["pos3"],[3.6150, 3.6150, 3.6150, 140.0], [1,1,1]]
 
         wavelength = 0.4133
         dspacing = wavelength/(2*np.sin((np.pi/180)*(df[system[0][0]]/2)))
